@@ -1,0 +1,43 @@
+{
+  "name": "veogen",
+  "version": "0.1.0",
+  "description": "Markdown-first Gemini Veo short video orchestrator",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "veogen": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "plan": "tsx src/cli.ts plan",
+    "render": "tsx src/cli.ts render",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "gemini",
+    "veo",
+    "video",
+    "markdown",
+    "orchestration"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google/genai": "^1.45.0",
+    "commander": "^14.0.3",
+    "gray-matter": "^4.0.3",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules
+dist
+outputs
+.env
+.npm-cache
+.codex-inspect
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.mp3
+*.wav
+*.m4a
+*.concat.txt
