@@ -4,6 +4,7 @@ outputs
 .env
 .npm-cache
 .codex-inspect
+.DS_Store
 *.mp4
 *.mov
 *.webm

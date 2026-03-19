@@ -12,6 +12,11 @@ import { relativeToCwd } from "./utils.js";
 
 const program = new Command();
 
+function collectRepeatedOption(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
+}
+
 program
   .name("veogen")
   .description("Markdown-first Gemini Veo short video orchestrator")
@@ -23,12 +28,19 @@ program
   .requiredOption("-s, --script <path>", "Path to the markdown script")
   .option("-o, --output <path>", "Explicit run directory for generated plan artifacts")
   .option("-m, --model <name>", "Override Veo model name")
+  .option(
+    "--shot <selector>",
+    "Limit planning to specific shots by global index, shot id, or 'last' (repeatable)",
+    collectRepeatedOption,
+    [],
+  )
   .option("-j, --json <path>", "Write normalized plan JSON to a specific path")
   .action(async (options) => {
     const plan = await planProject({
       scriptPath: options.script,
       outputDir: options.output,
       modelOverride: options.model,
+      shotSelectors: options.shot,
       jsonOutputPath: options.json,
     });
 
@@ -44,6 +56,12 @@ program
   .requiredOption("-s, --script <path>", "Path to the markdown script")
   .option("-o, --output <path>", "Explicit run directory")
   .option("-m, --model <name>", "Override Veo model name")
+  .option(
+    "--shot <selector>",
+    "Render only specific shots by global index, shot id, or 'last' (repeatable)",
+    collectRepeatedOption,
+    [],
+  )
   .option("--dry-run", "Build prompts and plan files without calling Gemini", false)
   .option("--skip-stitch", "Skip final ffmpeg concatenation", false)
   .option("--poll-ms <ms>", "Polling interval for long-running Gemini operations", "30000")
@@ -53,6 +71,7 @@ program
       scriptPath: options.script,
       outputDir: options.output,
       modelOverride: options.model,
+      shotSelectors: options.shot,
       dryRun: options.dryRun,
       skipStitch: options.skipStitch,
       pollMs: Number(options.pollMs),

@@ -32,6 +32,7 @@ import {
 export interface BuildPlanOptions {
   outputDir?: string;
   modelOverride?: string;
+  shotSelectors?: string[];
 }
 
 export interface RenderProjectOptions extends BuildPlanOptions {
@@ -225,6 +226,77 @@ function isTransientRenderError(error: unknown): boolean {
   return TRANSIENT_RENDER_ERRORS.some((fragment) => message.includes(fragment));
 }
 
+function normalizeShotSelectors(shotSelectors?: string[]): string[] {
+  return (shotSelectors ?? [])
+    .flatMap((selector) => selector.split(","))
+    .map((selector) => selector.trim())
+    .filter((selector) => selector.length > 0);
+}
+
+function selectPlannedShots(allShots: PlannedShot[], shotSelectors?: string[]): PlannedShot[] {
+  const selectors = normalizeShotSelectors(shotSelectors);
+  if (selectors.length === 0) {
+    return allShots;
+  }
+
+  const lastShot = allShots.at(-1);
+  const shotsByIndex = new Map(allShots.map((shot) => [shot.globalIndex, shot]));
+  const shotsById = new Map(allShots.map((shot) => [shot.id, shot]));
+  const selectedIndexes = new Set<number>();
+  const unresolvedSelectors: string[] = [];
+
+  for (const selector of selectors) {
+    if (selector.toLowerCase() === "last") {
+      if (lastShot) {
+        selectedIndexes.add(lastShot.globalIndex);
+        continue;
+      }
+    } else if (/^\d+$/.test(selector)) {
+      const shot = shotsByIndex.get(Number(selector));
+      if (shot) {
+        selectedIndexes.add(shot.globalIndex);
+        continue;
+      }
+    } else {
+      const shot = shotsById.get(selector);
+      if (shot) {
+        selectedIndexes.add(shot.globalIndex);
+        continue;
+      }
+    }
+
+    unresolvedSelectors.push(selector);
+  }
+
+  if (unresolvedSelectors.length > 0) {
+    const availableIds = allShots.map((shot) => shot.id).join(", ");
+    throw new Error(
+      `Unknown shot selector(s): ${unresolvedSelectors.join(", ")}. Use a global shot number, a shot id, or 'last'. Available shot ids: ${availableIds}`,
+    );
+  }
+
+  return allShots.filter((shot) => selectedIndexes.has(shot.globalIndex));
+}
+
+function validateSelectedShots(allShots: PlannedShot[], selectedShots: PlannedShot[]): void {
+  const selectedShotIndexes = new Set(selectedShots.map((shot) => shot.globalIndex));
+
+  for (const shot of selectedShots) {
+    if (shot.mode !== "video-extension") {
+      continue;
+    }
+
+    const previousShot = allShots.find((candidate) => candidate.globalIndex === shot.globalIndex - 1);
+    if (!previousShot || selectedShotIndexes.has(previousShot.globalIndex)) {
+      continue;
+    }
+
+    throw new Error(
+      `${shot.id} uses continueFromPrevious and requires shot ${previousShot.globalIndex} (${previousShot.id}) to be rendered in the same run.`,
+    );
+  }
+}
+
 export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: string }): Promise<RenderPlan> {
   const parsedProject = await parseMarkdownScript(options.scriptPath);
   const project =
@@ -238,7 +310,6 @@ export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: 
   const runDir = chooseRunDir(project, options.outputDir);
   const planWarnings: string[] = [];
   const shots: PlannedShot[] = [];
-  let totalDurationSec = 0;
   let previousParsedShot: ParsedShot | undefined;
 
   for (const scene of parsedProject.scenes) {
@@ -258,13 +329,6 @@ export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: 
         referenceSelection.selected.length > 0,
         shotWarnings,
       );
-
-      totalDurationSec += durationSec;
-      if (totalDurationSec > project.maxDurationSec) {
-        throw new Error(
-          `Planned duration reached ${totalDurationSec}s, which exceeds project maxDurationSec=${project.maxDurationSec}.`,
-        );
-      }
 
       const prompt = buildShotPrompt({
         project,
@@ -303,6 +367,16 @@ export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: 
     }
   }
 
+  const selectedShots = selectPlannedShots(shots, options.shotSelectors);
+  validateSelectedShots(shots, selectedShots);
+
+  const totalDurationSec = selectedShots.reduce((sum, shot) => sum + shot.durationSec, 0);
+  if (totalDurationSec > project.maxDurationSec) {
+    throw new Error(
+      `Planned duration reached ${totalDurationSec}s, which exceeds project maxDurationSec=${project.maxDurationSec}.`,
+    );
+  }
+
   return {
     createdAt: new Date().toISOString(),
     scriptPath: parsedProject.scriptPath,
@@ -310,7 +384,7 @@ export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: 
     project,
     totalDurationSec,
     warnings: planWarnings,
-    shots,
+    shots: selectedShots,
   };
 }
 
@@ -353,10 +427,7 @@ export async function renderProject(
     try {
       const previousCompletedShot =
         shot.mode === "video-extension"
-          ? manifest.shots
-              .slice(0, shot.globalIndex - 1)
-              .reverse()
-              .find((candidate) => candidate.status === "completed")
+          ? manifest.shots.slice(0, index).reverse().find((candidate) => candidate.status === "completed")
           : undefined;
 
       let result;

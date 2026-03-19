@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-DEFAULT_SCRIPT="Fitness-proj/demo-short.render.md"
+DEFAULT_SCRIPT="projs/Fitness-proj/demo-short.render.md"
 
 usage() {
   cat <<'EOF'
@@ -22,20 +22,23 @@ Actions:
 
 Defaults:
   action: render
-  script: Fitness-proj/demo-short.render.md
+  script: projs/Fitness-proj/demo-short.render.md
 
 Examples:
   bash run.sh
   bash run.sh fast
   bash run.sh plan
-  bash run.sh render Fitness-proj/demo-short.render.md --output outputs/my-run
-  bash run.sh fast Fitness-proj/demo-short.render.part3.md
+  bash run.sh render projs/Fitness-proj/demo-short.render.md --output outputs/my-run
+  bash run.sh fast projs/Fitness-proj/demo-short.render.part3.md
+  bash run.sh render drawio-proj --shot last
+  bash run.sh plan projs/examples/demo-short.md
   bash run.sh stitch --manifest outputs/some-run/manifest.json
 
 Options:
   -s, --script <path>                 Explicit script path
   -m, --model <name>                  Override model
   -o, --output <path>                 Explicit output run directory or stitched video path
+  --shot <selector>                   Limit to specific shots by global index, shot id, or 'last' (repeatable)
   --manifest <path>                   Manifest path for stitch
   --poll-ms <ms>                      Polling interval for long-running video operations
   --inter-shot-delay-ms <ms>          Delay between clip submissions
@@ -61,24 +64,33 @@ ensure_dependencies() {
 
 resolve_script() {
   local input="$1"
+  local candidate=""
 
   if [[ -z "$input" ]]; then
     echo "$DEFAULT_SCRIPT"
     return
   fi
 
-  if [[ -d "$input" ]]; then
-    if [[ -f "$input/demo-short.render.md" ]]; then
-      echo "$input/demo-short.render.md"
+  if [[ -e "$input" ]]; then
+    candidate="$input"
+  elif [[ -e "projs/$input" ]]; then
+    candidate="projs/$input"
+  else
+    candidate="$input"
+  fi
+
+  if [[ -d "$candidate" ]]; then
+    if [[ -f "$candidate/demo-short.render.md" ]]; then
+      echo "$candidate/demo-short.render.md"
       return
     fi
-    if [[ -f "$input/demo-short.md" ]]; then
-      echo "$input/demo-short.md"
+    if [[ -f "$candidate/demo-short.md" ]]; then
+      echo "$candidate/demo-short.md"
       return
     fi
   fi
 
-  echo "$input"
+  echo "$candidate"
 }
 
 ACTION="render"
@@ -88,6 +100,7 @@ OUTPUT=""
 MANIFEST=""
 POLL_MS=""
 INTER_SHOT_DELAY_MS=""
+SHOT_SELECTORS=()
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
@@ -110,6 +123,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -o|--output)
       OUTPUT="$2"
+      shift 2
+      ;;
+    --shot)
+      SHOT_SELECTORS+=("$2")
       shift 2
       ;;
     --manifest)
@@ -159,6 +176,11 @@ case "$ACTION" in
     cmd=(npm run plan -- --script "$SCRIPT_PATH")
     [[ -n "$OUTPUT" ]] && cmd+=("--output" "$OUTPUT")
     [[ -n "$MODEL" ]] && cmd+=("--model" "$MODEL")
+    if ((${#SHOT_SELECTORS[@]})); then
+      for shot_selector in "${SHOT_SELECTORS[@]}"; do
+        cmd+=("--shot" "$shot_selector")
+      done
+    fi
     printf 'Running:'
     printf ' %q' "${cmd[@]}"
     printf '\n'
@@ -177,6 +199,11 @@ case "$ACTION" in
     cmd=(npm run render -- --script "$SCRIPT_PATH")
     [[ -n "$OUTPUT" ]] && cmd+=("--output" "$OUTPUT")
     [[ -n "$MODEL" ]] && cmd+=("--model" "$MODEL")
+    if ((${#SHOT_SELECTORS[@]})); then
+      for shot_selector in "${SHOT_SELECTORS[@]}"; do
+        cmd+=("--shot" "$shot_selector")
+      done
+    fi
     [[ -n "$POLL_MS" ]] && cmd+=("--poll-ms" "$POLL_MS")
     [[ -n "$INTER_SHOT_DELAY_MS" ]] && cmd+=("--inter-shot-delay-ms" "$INTER_SHOT_DELAY_MS")
     [[ "$ACTION" == "dry-run" ]] && cmd+=("--dry-run")

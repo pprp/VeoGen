@@ -54,6 +54,20 @@ npm install --cache .npm-cache
 
 ---
 
+## 目录结构
+
+核心实现代码统一放在 `src/`。
+
+所有项目输入现在统一放在 `projs/` 下，避免根目录堆积多个项目目录：
+
+- `projs/examples/`
+- `projs/Fitness-proj/`
+- `projs/drawio-proj/`
+
+每个项目目录内部继续保留脚本和 `refs/`，这样相对路径不会混乱。
+
+---
+
 ## 配置 API Key
 
 项目通过环境变量读取 Gemini API Key：
@@ -152,7 +166,7 @@ references:
 ### 1. 只构建计划，不调用 API
 
 ```bash
-npm run plan -- --script examples/demo-short.md
+npm run plan -- --script projs/examples/demo-short.md
 ```
 
 适合第一次上手时检查：
@@ -167,7 +181,7 @@ npm run plan -- --script examples/demo-short.md
 ### 2. 全流程 Dry Run
 
 ```bash
-npm run render -- --script examples/demo-short.md --dry-run
+npm run render -- --script projs/examples/demo-short.md --dry-run
 ```
 
 这一步会：
@@ -185,7 +199,7 @@ npm run render -- --script examples/demo-short.md --dry-run
 ### 3. 正式渲染并拼接视频
 
 ```bash
-npm run render -- --script examples/demo-short.md
+npm run render -- --script projs/examples/demo-short.md
 ```
 
 这一步会真正：
@@ -195,12 +209,28 @@ npm run render -- --script examples/demo-short.md
 - 记录执行状态
 - 最终尝试拼接出完整视频
 
+如果你只想单独重跑某几个镜头，可以加 `--shot`：
+
+```bash
+npm run render -- --script projs/drawio-proj/demo-short.md --shot last
+npm run render -- --script projs/examples/demo-short.md --shot 2 --shot scene-03-shot-01
+```
+
 ---
 
 ### 4. 基于已有结果重新拼接
 
 ```bash
 npm run dev -- stitch --manifest outputs/<run-id>/manifest.json
+```
+
+也可以直接使用统一入口脚本：
+
+```bash
+bash run.sh
+bash run.sh fast
+bash run.sh plan projs/examples/demo-short.md
+bash run.sh render drawio-proj --shot last
 ```
 
 如果镜头已经生成完成，只想重新拼接最终成片，可以使用这条命令。
@@ -259,7 +289,7 @@ outputs/<run-id>/
 
 1. 安装依赖
 2. 设置 `GEMINI_API_KEY`
-3. 阅读 `examples/demo-short.md`
+3. 阅读 `projs/examples/demo-short.md`
 4. 运行 `plan`
 5. 运行 `render --dry-run`
 6. 查看 `outputs/` 下生成的计划和 prompts
@@ -267,7 +297,7 @@ outputs/<run-id>/
 
 ### 路线 B：直接改自己的脚本
 
-1. 复制 `examples/demo-short.md`
+1. 复制 `projs/examples/demo-short.md`
 2. 修改标题、角色、场景和镜头内容
 3. 添加你自己的参考图路径
 4. 先运行 `plan`
@@ -312,14 +342,14 @@ outputs/<run-id>/
 ```bash
 npm install --cache .npm-cache
 export GEMINI_API_KEY=你的真实密钥
-npm run plan -- --script examples/demo-short.md
-npm run render -- --script examples/demo-short.md --dry-run
+npm run plan -- --script projs/examples/demo-short.md
+npm run render -- --script projs/examples/demo-short.md --dry-run
 ```
 
 确认输出没问题后，再执行：
 
 ```bash
-npm run render -- --script examples/demo-short.md
+npm run render -- --script projs/examples/demo-short.md
 ```
 
 ---

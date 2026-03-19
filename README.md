@@ -28,6 +28,18 @@ Source used for the scaffold:
 npm install --cache .npm-cache
 ```
 
+## Directory layout
+
+Core implementation lives in `src/`.
+
+Project inputs are grouped under `projs/` to keep the repository root clean:
+
+- `projs/examples/`
+- `projs/Fitness-proj/`
+- `projs/drawio-proj/`
+
+Each project keeps its own markdown scripts and `refs/` folder together.
+
 Set your API key:
 
 ```bash
@@ -78,25 +90,41 @@ Hero opens the door and finally steps inside.
 Build a plan without calling the API:
 
 ```bash
-npm run plan -- --script examples/demo-short.md
+npm run plan -- --script projs/examples/demo-short.md
 ```
 
 Dry-run a full render job and write prompts/manifests to disk:
 
 ```bash
-npm run render -- --script examples/demo-short.md --dry-run
+npm run render -- --script projs/examples/demo-short.md --dry-run
 ```
 
 Render clips with Gemini and stitch them:
 
 ```bash
-npm run render -- --script examples/demo-short.md
+npm run render -- --script projs/examples/demo-short.md
+```
+
+Render only specific shots from a script:
+
+```bash
+npm run render -- --script projs/drawio-proj/demo-short.md --shot last
+npm run render -- --script projs/examples/demo-short.md --shot 2 --shot scene-03-shot-01
 ```
 
 Restitch an existing run:
 
 ```bash
 npm run dev -- stitch --manifest outputs/<run-id>/manifest.json
+```
+
+Recommended shortcut entrypoint:
+
+```bash
+bash run.sh
+bash run.sh fast
+bash run.sh plan projs/examples/demo-short.md
+bash run.sh render drawio-proj --shot last
 ```
 
 ## Output layout
