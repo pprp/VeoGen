@@ -1,124 +1,125 @@
 # VeoGen
 
-`VeoGen` 是一个 **以 Markdown 为核心入口** 的 Gemini Veo 编排脚手架，用来生成 **最长 120 秒** 的短视频。
+[English](./README.md)
 
-它适合这样的工作流：
+`VeoGen` 是一个以 Markdown 为入口的 Gemini Veo 编排脚手架，用来把短视频脚本转成可执行的渲染计划、逐镜头 prompts、生成后的 clips，以及可选的最终拼接视频。
 
-- 用 `.md` 撰写短片脚本
-- 在 frontmatter 中维护角色设定（角色圣经）
-- 为角色、镜头或整体风格添加可选参考图
-- 在共享一致性提示的基础上生成多个 Veo 片段
-- 最后使用 `ffmpeg` 将片段拼接成完整短视频
+当前状态：实验性 `v0.1`。仓库已经适合公开展示和直接从源码运行，但目前还不是一个已发布到 npm 的工具包。
 
----
+## 它能做什么
 
-## 项目定位
+- 用 Markdown 写场景和镜头，而不是手工拼接 API 请求
+- 用 YAML frontmatter 维护项目配置和角色设定
+- 给角色、镜头和整体风格挂参考图
+- 在正式渲染前检查 Gemini 视频接口的关键约束
+- 用 `--dry-run` 跑完整流程但不调用 API
+- 用 `--shot` 只重跑指定镜头
+- 落盘 `plan.json` 和 `manifest.json`，方便排查、恢复和重新拼接
 
-这个项目不是“只发一次请求生成一段视频”的简单示例，而是一个 **短片级别的视频生成流水线**。
+## 为什么这个仓库长这样
 
-你可以把它理解成三层：
+`VeoGen` 不是“发一个 prompt 直接出整片”的演示，而是一个面向短片工作流的轻量编排层。
 
-1. **脚本层**：用 Markdown 描述故事、镜头、角色和参数
-2. **规划层**：把脚本解析成标准化的渲染计划
-3. **执行层**：生成 prompts、调用 Gemini Veo、记录状态并拼接视频
+当前 Gemini 视频接口的一些限制会直接影响项目设计：
 
-所以它更像一个稳定的后端编排核心，适合先把生产流程跑通，再逐步扩展 UI、队列、配音、字幕等能力。
+- 一个短片通常需要多个 clip，而不是一次生成整段视频
+- 单次请求最多只能带 3 张参考图
+- 请求 `1080p` 或使用参考图时，clip 时长必须是 8 秒
+- 视频续写和参考图不能在同一次请求里同时使用
 
----
+这些规则会在规划阶段被检查，并把警告写进 `plan.json` 和 `manifest.json`。
 
-## 为什么这样设计
+参考文档：[Gemini video generation docs](https://ai.google.dev/gemini-api/docs/video?example=dialogue)
 
-根据 Gemini 视频生成接口当前文档，Veo 的一些约束会直接影响项目结构设计：
+## 运行要求
 
-- 单个生成 clip 不足以支撑 2 分钟短片，因此需要拆分成多个镜头
-- 单次携带的参考图最多 **3 张**
-- 请求 `1080p` 或启用参考图时，通常要求使用 **8 秒 clip**
-- **视频续写（extension）** 与 **参考图（reference images）** 不能同时使用
+- Node.js `>=20`
+- 如果你要输出最终拼接视频，需要系统里有 `ffmpeg`
+- 可用的 `GEMINI_API_KEY`，并且账号有 Gemini 视频模型访问权限
+- 本地克隆这个仓库
 
-这些规则会在规划阶段被检查，并把相关警告写入：
-
-- `plan.json`
-- `manifest.json`
-
-也就是说，`VeoGen` 会先帮你做“规则约束 + 可执行计划”，再进入真正的生成流程。
-
----
-
-## 安装
-
-先安装依赖：
+## 快速开始
 
 ```bash
+git clone <repo-url>
+cd VeoGen
 npm install --cache .npm-cache
-```
 
----
-
-## 目录结构
-
-核心实现代码统一放在 `src/`。
-
-所有项目输入现在统一放在 `projs/` 下，避免根目录堆积多个项目目录：
-
-- `projs/examples/`
-- `projs/Fitness-proj/`
-- `projs/drawio-proj/`
-
-每个项目目录内部继续保留脚本和 `refs/`，这样相对路径不会混乱。
-
----
-
-## 配置 API Key
-
-项目通过环境变量读取 Gemini API Key：
-
-```bash
 export GEMINI_API_KEY=your_key_here
+
+npm run plan -- --script projs/examples/demo-short.md
+npm run render -- --script projs/examples/demo-short.md --dry-run
 ```
 
-请把 `your_key_here` 替换成你的真实密钥。
-
-如果你使用的是 macOS + `zsh`，有两种常见方式：
-
-### 临时生效（仅当前终端）
+确认 dry-run 输出没有问题后，再正式渲染：
 
 ```bash
-export GEMINI_API_KEY=你的真实密钥
+npm run render -- --script projs/examples/demo-short.md
 ```
 
-### 长期生效（推荐）
-
-把下面这行加入 `~/.zshrc`：
+如果你更喜欢用 `.env`，`run.sh` 会自动加载它：
 
 ```bash
-export GEMINI_API_KEY=你的真实密钥
+echo 'GEMINI_API_KEY=your_key_here' > .env
+bash run.sh dry-run projs/examples/demo-short.md
 ```
 
-然后执行：
+第一次上手建议直接看 [`projs/examples/demo-short.md`](./projs/examples/demo-short.md)。
+
+## 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `npm run plan -- --script projs/examples/demo-short.md` | 解析脚本并生成渲染计划，不调用 Gemini |
+| `npm run render -- --script projs/examples/demo-short.md --dry-run` | 生成 prompts、plan 和 manifest，但不发起 API 请求 |
+| `npm run render -- --script projs/examples/demo-short.md` | 真正生成 clips 并尝试拼接 |
+| `npm run render -- --script projs/examples/demo-short.md --shot 2 --shot scene-03-shot-01` | 只重跑选中的镜头 |
+| `npm run render -- --script projs/examples/demo-short.md --skip-stitch` | 生成 clips，但跳过 `ffmpeg` 拼接 |
+| `npm run dev -- stitch --manifest outputs/<run-id>/manifest.json` | 基于已有 manifest 重新拼接 |
+| `npm run typecheck` | 执行 TypeScript 类型检查 |
+
+## 快捷入口脚本
+
+`run.sh` 对常见流程做了一层薄封装，并且会自动解析 `projs/` 下的项目目录：
 
 ```bash
-source ~/.zshrc
+bash run.sh
+bash run.sh fast
+bash run.sh plan projs/examples/demo-short.md
+bash run.sh render drawio-proj --shot last
+bash run.sh stitch --manifest outputs/some-run/manifest.json
 ```
 
----
+`bash run.sh fast` 默认使用 `veo-3.1-fast-generate-preview`，除非你显式传入 `--model` 覆盖。
 
-## Markdown 脚本格式约定
+## 项目结构
 
-脚本文件采用如下结构：
+```text
+src/                         核心解析器、规划器、prompt 构建、Gemini 客户端、拼接器
+projs/examples/              最小可运行示例
+projs/Fitness-proj/          较完整的示例项目
+projs/drawio-proj/           参考图更重的示例项目
+outputs/                     运行产物，包括计划、prompts、clips、manifest 和成片
+run.sh                       CLI 的便捷包装脚本
+```
 
-1. 顶部使用 YAML frontmatter 存放项目级配置和角色定义
-2. `# Scene Title` 表示一个场景
-3. `## Shot Title` 表示一个可渲染镜头
-4. 每个镜头内部可以有一个可选的 fenced `yaml` 代码块，用于填写结构化镜头参数
-5. YAML 代码块下面写自由格式的动作、对白、调度说明
+## 脚本格式
+
+每个脚本由以下部分组成：
+
+1. YAML frontmatter，存放项目级配置和角色定义
+2. `# Scene Title`，表示场景
+3. `## Shot Title`，表示可渲染镜头
+4. 每个镜头内部可选的 fenced `yaml` 代码块，用来写结构化镜头参数
+5. YAML 下方的自由 Markdown 文本，用来写动作、对白和调度说明
 
 示例：
 
 ````md
 ---
 title: 我的短片
-aspectRatio: '16:9'
-resolution: '720p'
+aspectRatio: "16:9"
+resolution: "720p"
 maxDurationSec: 120
 characters:
   - id: hero
@@ -129,11 +130,9 @@ characters:
 ---
 
 # Scene 1
-
 场景说明文本。
 
 ## Shot 1
-
 ```yaml
 durationSec: 8
 characters: [hero]
@@ -141,105 +140,52 @@ camera: slow push-in
 references:
   - refs/room.jpg
 ```
-
 主角推开门，终于走进房间。
 ````
 
----
+## Frontmatter 字段
 
-## 推荐的理解方式
+| 字段 | 含义 |
+| --- | --- |
+| `title` | 项目标题，也会参与输出目录命名 |
+| `synopsis` | 可选的项目摘要 |
+| `model` | Gemini 视频模型名，默认取 `veo-3.0-generate-preview`，也可通过 `VEO_MODEL` 覆盖 |
+| `aspectRatio` | `16:9` 或 `9:16` |
+| `resolution` | `720p` 或 `1080p` |
+| `maxDurationSec` | 项目总时长上限，最大 `120` |
+| `defaultClipDurationSec` | 默认镜头时长，最大 `8` |
+| `generateAudio` | 是否生成音频 |
+| `enhancePrompt` | 是否启用 prompt enhancement |
+| `personGeneration` | `allow_adult`、`dont_allow` 或 `allow_all` |
+| `negativePrompt` | 可选的负面提示词 |
+| `style` | 可选的全局风格描述 |
+| `styleReferenceImages` | 项目级风格参考图 |
+| `outputDir` | 输出根目录，默认 `outputs` |
+| `seed` | 可选的项目级随机种子 |
+| `characters` | 角色数组，每个角色可带 `referenceImages` |
 
-你可以把一个短片脚本理解为：
+说明：`generateAudio`、`enhancePrompt`、`negativePrompt` 和 `seed` 已经进入脚本 schema，也会保留在计划输出里，但当前的 Gemini 请求适配层还没有把它们全部完整接通。
 
-- **frontmatter**：全局约束与角色设定
-- **Scene**：故事段落和空间切换
-- **Shot**：真正会触发一次生成的镜头单位
-- **shot 内 YAML**：每个镜头的结构化控制参数
-- **shot 正文**：自然语言补充描述
+## Shot YAML 字段
 
-这使得文本表达自由度和程序可控性之间保持平衡。
+| 字段 | 含义 |
+| --- | --- |
+| `durationSec` | 镜头时长，最大 `8` 秒 |
+| `characters` | 当前镜头活跃的角色 id |
+| `location` | 可选的地点描述 |
+| `timeOfDay` | 可选的时间描述 |
+| `camera` | 构图、镜头语言或镜头参数说明 |
+| `movement` | 摄影机或主体运动 |
+| `mood` | 情绪和氛围 |
+| `sound` | 声音、对白或音效说明 |
+| `references` | 镜头级参考图路径 |
+| `continueFromPrevious` | 续写前一个已生成镜头，而不是纯文本起步 |
+| `transition` | 可选的转场说明 |
+| `seedOffset` | 每个镜头对 seed 的偏移量 |
 
----
+## 输出文件
 
-## 常用命令
-
-### 1. 只构建计划，不调用 API
-
-```bash
-npm run plan -- --script projs/examples/demo-short.md
-```
-
-适合第一次上手时检查：
-
-- Markdown 结构是否正确
-- frontmatter 是否合法
-- shot 参数是否被正确解析
-- 是否触发了 API 约束警告
-
----
-
-### 2. 全流程 Dry Run
-
-```bash
-npm run render -- --script projs/examples/demo-short.md --dry-run
-```
-
-这一步会：
-
-- 解析脚本
-- 生成 prompts
-- 写出 `plan.json` 和 `manifest.json`
-- 模拟一次完整渲染流程
-- **但不会真正调用 Veo 接口**
-
-适合在正式渲染前检查整个工作流是否符合预期。
-
----
-
-### 3. 正式渲染并拼接视频
-
-```bash
-npm run render -- --script projs/examples/demo-short.md
-```
-
-这一步会真正：
-
-- 调用 Gemini Veo
-- 生成各个镜头 clip
-- 记录执行状态
-- 最终尝试拼接出完整视频
-
-如果你只想单独重跑某几个镜头，可以加 `--shot`：
-
-```bash
-npm run render -- --script projs/drawio-proj/demo-short.md --shot last
-npm run render -- --script projs/examples/demo-short.md --shot 2 --shot scene-03-shot-01
-```
-
----
-
-### 4. 基于已有结果重新拼接
-
-```bash
-npm run dev -- stitch --manifest outputs/<run-id>/manifest.json
-```
-
-也可以直接使用统一入口脚本：
-
-```bash
-bash run.sh
-bash run.sh fast
-bash run.sh plan projs/examples/demo-short.md
-bash run.sh render drawio-proj --shot last
-```
-
-如果镜头已经生成完成，只想重新拼接最终成片，可以使用这条命令。
-
----
-
-## 输出目录结构
-
-每次运行都会生成一个独立输出目录：
+每次运行都会生成一个独立目录：
 
 ```text
 outputs/<run-id>/
@@ -250,142 +196,30 @@ outputs/<run-id>/
   final-video.mp4
 ```
 
-各文件/目录作用如下：
+- `plan.json` 是标准化并通过校验的执行计划
+- `manifest.json` 是执行记录，包含每个镜头的状态、远端 URI 和最终输出信息
+- `prompts/` 保存每个镜头最终发送的 prompt
+- `clips/` 保存下载到本地的视频片段
+- `final-video.mp4` 只有在未跳过拼接且拼接成功时才会生成
 
-- `clips/`：生成出来的镜头视频片段
-- `prompts/`：每个镜头对应的最终提示词
-- `plan.json`：标准化后的规划结果
-- `manifest.json`：执行过程记录，包含每个 shot 的状态、远端 URI 和输出信息
-- `final-video.mp4`：最终拼接后的视频文件
+## 关键行为说明
 
----
+- 参考图有预算限制。系统会优先选择当前镜头活跃角色的参考图和镜头级参考图；如果还有空位，再补 1 张风格参考图。
+- 请求 `1080p` 或携带参考图时，规划阶段会自动把镜头时长修正为 8 秒。
+- 如果某个镜头设置了 `continueFromPrevious: true`，VeoGen 会把它切换成视频续写模式，并移除该请求中的参考图。
+- `--shot` 支持全局镜头序号、shot id，或者 `last`。
+- 如果你只选择一个依赖续写的镜头，但没有把它的前一个镜头一起放进同一次运行，规划阶段会直接报错。
+- 最终拼接依赖 `ffmpeg`，会先尝试 stream copy，失败后再回退到重新编码。
 
-## 核心规则说明
+## 当前边界
 
-### 参考图最多 3 张
-
-单个请求最多只能携带 3 张参考图，因此项目会做优先级分配：
-
-1. 优先保留当前镜头中活跃角色的参考图
-2. 如果还有剩余空间，再加入一个可选的风格参考图
-
-### 续写模式与参考图互斥
-
-如果某个 shot 设置了 `continueFromPrevious: true`，项目会自动切换到 **视频续写模式**。
-
-这种情况下，`VeoGen` 会自动移除该镜头请求中的参考图，因为 Gemini API 不支持“续写 + 参考图”同时使用。
-
-### 规划阶段会输出警告
-
-如果你的脚本触发了这些限制，项目不会默默失败，而是把信息写入计划或执行记录中，方便排查。
-
----
-
-## 推荐的第一次使用流程
-
-如果你是第一次接触这个项目，建议按照下面的顺序：
-
-### 路线 A：先理解流程
-
-1. 安装依赖
-2. 设置 `GEMINI_API_KEY`
-3. 阅读 `projs/examples/demo-short.md`
-4. 运行 `plan`
-5. 运行 `render --dry-run`
-6. 查看 `outputs/` 下生成的计划和 prompts
-7. 确认无误后再正式渲染
-
-### 路线 B：直接改自己的脚本
-
-1. 复制 `projs/examples/demo-short.md`
-2. 修改标题、角色、场景和镜头内容
-3. 添加你自己的参考图路径
-4. 先运行 `plan`
-5. 再运行 `render --dry-run`
-6. 最后正式调用渲染
-
----
-
-## 适合什么场景
-
-这个项目尤其适合下面这些需求：
-
-- 希望把一个短片拆成多个镜头系统化生成
-- 希望维持角色一致性和画面风格一致性
-- 希望对镜头时长、相机运动、参考图等因素进行结构化控制
-- 希望先把后端编排流程跑通，再逐步补齐产品层能力
-
----
-
-## 你需要额外留意的事项
-
-### 1. 先确保 API Key 可用
-
-没有正确配置 `GEMINI_API_KEY`，正式渲染无法工作。
-
-### 2. 最终拼接通常依赖 `ffmpeg`
-
-项目说明中明确提到使用 `ffmpeg` 做视频拼接，因此如果你要得到最终合成视频，系统中通常需要具备可用的 `ffmpeg`。
-
-如果你已经能成功生成 clips，但最终拼接失败，优先检查这一项。
-
-### 3. 建议先跑 Dry Run
-
-第一次不要直接正式渲染，先通过 `plan` 和 `dry-run` 检查脚本结构、镜头拆分和 prompts，这样更容易定位问题。
-
----
-
-## 一个最短可行上手路径
-
-如果你只想最快跑起来，可以按下面做：
-
-```bash
-npm install --cache .npm-cache
-export GEMINI_API_KEY=你的真实密钥
-npm run plan -- --script projs/examples/demo-short.md
-npm run render -- --script projs/examples/demo-short.md --dry-run
-```
-
-确认输出没问题后，再执行：
-
-```bash
-npm run render -- --script projs/examples/demo-short.md
-```
-
----
-
-## 项目当前边界
-
-根据现有说明，`VeoGen` 目前更偏向 **backend-first scaffold**，重点是：
+这个仓库刻意保持 backend-first，只解决编排核心：
 
 - 脚本解析
-- 计划生成
-- 提示词组织
-- Veo 调用编排
-- 输出记录
-- 成片拼接
+- 计划校验
+- prompt 落盘
+- Gemini clip 生成
+- manifest 持久化
+- 最终拼接
 
-它并不试图一次性提供完整产品能力，如：
-
-- Web UI
-- 渲染队列管理
-- 资产库管理
-- 配音系统
-- 字幕工作流
-
-这些可以在现有编排核心稳定后继续扩展。
-
----
-
-## 一句话总结
-
-`VeoGen` 的核心价值是：
-
-> 用 Markdown 写短片脚本，把它自动拆成多个 Veo 镜头进行规划、生成与拼接，形成一条可复用的短视频生产流水线。
-
-如果你希望进一步完善中文文档，下一步可以继续补：
-
-- `README.md` 中英双语互链
-- “常见报错与排查”章节
-- “从零写一个脚本”教程
-- 各个 `src/` 文件职责说明
+它目前还不包含 UI、任务队列、素材管理、字幕工作流或配音流水线。
