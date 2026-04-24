@@ -1,6 +1,6 @@
-Put optional reference images here.
+Bundled placeholder reference images for `demo-short.md` live here. The minimal onboarding script `demo-short.min.md` does not need this folder.
 
-Suggested files for the bundled demo script:
+Files used by the bundled demo script:
 - `maya-portrait.jpg`
 - `ren-portrait.jpg`
 - `style-board.jpg`

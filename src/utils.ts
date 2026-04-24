@@ -107,3 +107,14 @@ export function sleep(ms: number): Promise<void> {
 export function relativeToCwd(targetPath: string): string {
   return path.relative(process.cwd(), targetPath) || ".";
 }
+
+export function normalizeVeoModelName(model: string): string {
+  switch (model.trim()) {
+    case "veo-3.0-generate-preview":
+      return "veo-3.1-generate-preview";
+    case "veo-3.0-fast-generate-preview":
+      return "veo-3.1-fast-generate-preview";
+    default:
+      return model;
+  }
+}

@@ -14,6 +14,11 @@ import { detectMimeType, readFileBase64, sleep } from "./utils.js";
 const RATE_LIMIT_RETRY_BASE_MS = 60_000;
 const RATE_LIMIT_RETRY_MAX_MS = 5 * 60_000;
 const RATE_LIMIT_RETRY_ATTEMPTS = 6;
+const UNSUPPORTED_GENERATE_AUDIO_ERROR = "generateAudio parameter is not supported in Gemini API.";
+const UNSUPPORTED_ENHANCE_PROMPT_ERROR = "`enhancePrompt` isn't supported by this model.";
+const UNSUPPORTED_NEGATIVE_PROMPT_ERROR = "Negative prompt is not supported in your use case.";
+const UNSUPPORTED_PERSON_GENERATION_ERROR = "for personGeneration is currently not supported.";
+const UNSUPPORTED_SEED_ERROR = "seed parameter is not supported in Gemini API.";
 
 export interface ReferenceImageInput {
   absolutePath: string;
@@ -27,7 +32,7 @@ export interface GenerateClipRequest {
   durationSec: number;
   aspectRatio: "16:9" | "9:16";
   resolution: "720p" | "1080p";
-  personGeneration: "allow_adult" | "dont_allow" | "allow_all";
+  personGeneration: "allow_adult" | "dont_allow";
   enhancePrompt: boolean;
   generateAudio: boolean;
   negativePrompt?: string;
@@ -35,6 +40,7 @@ export interface GenerateClipRequest {
   pollMs: number;
   referenceImages: ReferenceImageInput[];
   previousVideoPath?: string;
+  previousVideoUri?: string;
 }
 
 export interface GenerateClipResult {
@@ -60,6 +66,23 @@ function isRateLimitError(error: unknown): boolean {
   return message.includes('"code":429') || message.includes("RESOURCE_EXHAUSTED");
 }
 
+function errorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error && error.cause ? String(error.cause) : "";
+  return `${message}\n${cause}`;
+}
+
+function isTransientNetworkError(error: unknown): boolean {
+  const text = errorText(error);
+  return (
+    text.includes("fetch failed") ||
+    text.includes("terminated") ||
+    text.includes("ECONNRESET") ||
+    text.includes("UND_ERR_SOCKET") ||
+    text.includes("other side closed")
+  );
+}
+
 async function withRateLimitBackoff<T>(task: () => Promise<T>): Promise<T> {
   let delayMs = RATE_LIMIT_RETRY_BASE_MS;
 
@@ -67,22 +90,59 @@ async function withRateLimitBackoff<T>(task: () => Promise<T>): Promise<T> {
     try {
       return await task();
     } catch (error) {
-      if (attempt === RATE_LIMIT_RETRY_ATTEMPTS || !isRateLimitError(error)) {
+      const rateLimited = isRateLimitError(error);
+      if (
+        attempt === RATE_LIMIT_RETRY_ATTEMPTS ||
+        (!rateLimited && !isTransientNetworkError(error))
+      ) {
         throw error;
       }
 
-      await sleep(delayMs);
-      delayMs = Math.min(delayMs * 2, RATE_LIMIT_RETRY_MAX_MS);
+      await sleep(rateLimited ? delayMs : 10_000);
+      if (rateLimited) {
+        delayMs = Math.min(delayMs * 2, RATE_LIMIT_RETRY_MAX_MS);
+      }
     }
   }
 
   throw new Error("Rate-limit retry loop exited unexpectedly.");
 }
 
+function isUnsupportedGenerateAudioError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(UNSUPPORTED_GENERATE_AUDIO_ERROR);
+}
+
+function isUnsupportedEnhancePromptError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(UNSUPPORTED_ENHANCE_PROMPT_ERROR);
+}
+
+function isUnsupportedNegativePromptError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(UNSUPPORTED_NEGATIVE_PROMPT_ERROR);
+}
+
+function isUnsupportedPersonGenerationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(UNSUPPORTED_PERSON_GENERATION_ERROR);
+}
+
+function isUnsupportedSeedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(UNSUPPORTED_SEED_ERROR);
+}
+
 async function buildSourceVideo(previousVideoPath: string) {
   return {
     videoBytes: await readFileBase64(previousVideoPath),
     mimeType: detectMimeType(previousVideoPath),
+  };
+}
+
+function buildSourceVideoUri(previousVideoUri: string) {
+  return {
+    uri: previousVideoUri,
   };
 }
 
@@ -107,49 +167,56 @@ async function downloadVideo(
   ai: GoogleGenAI,
   generatedVideo: GeneratedVideo,
   outputPath: string,
+  apiKey: string,
 ): Promise<void> {
-  try {
-    await withRateLimitBackoff(async () => {
-      await ai.files.download({
-        file: generatedVideo,
-        downloadPath: outputPath,
+  const remoteUri = generatedVideo.video?.uri;
+  if (remoteUri) {
+    try {
+      await withRateLimitBackoff(async () => {
+        const response = await fetch(remoteUri, {
+          headers: {
+            "x-goog-api-key": apiKey,
+          },
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to download video: ${response.status} ${response.statusText}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        await fs.writeFile(outputPath, Buffer.from(arrayBuffer));
       });
-    });
-    return;
-  } catch (error) {
-    if (isRateLimitError(error)) {
-      throw error;
+      return;
+    } catch (error) {
+      if (isRateLimitError(error) || isTransientNetworkError(error)) {
+        throw error;
+      }
     }
-
-    const remoteUri = generatedVideo.video?.uri;
-    if (!remoteUri) {
-      throw error;
-    }
-
-    const response = await withRateLimitBackoff(async () => {
-      return fetch(remoteUri);
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to download video: ${response.status} ${response.statusText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    await fs.writeFile(outputPath, Buffer.from(arrayBuffer));
   }
+
+  await withRateLimitBackoff(async () => {
+    await ai.files.download({
+      file: generatedVideo,
+      downloadPath: outputPath,
+    });
+  });
 }
 
 export class GeminiVideoClient {
   private readonly ai: GoogleGenAI;
+  private readonly apiKey: string;
 
   constructor(apiKey: string) {
+    this.apiKey = apiKey;
     this.ai = new GoogleGenAI({ apiKey });
   }
 
   async generateClip(request: GenerateClipRequest): Promise<GenerateClipResult> {
-    const source = request.previousVideoPath
+    const source = request.previousVideoUri || request.previousVideoPath
       ? {
           prompt: request.prompt,
-          video: await buildSourceVideo(request.previousVideoPath),
+          video: request.previousVideoUri
+            ? buildSourceVideoUri(request.previousVideoUri)
+            : await buildSourceVideo(request.previousVideoPath as string),
         }
       : {
           prompt: request.prompt,
@@ -161,19 +228,65 @@ export class GeminiVideoClient {
       aspectRatio: request.aspectRatio,
       resolution: request.resolution,
       personGeneration: request.personGeneration,
+      seed: request.seed,
+      negativePrompt: request.negativePrompt,
+      enhancePrompt: request.enhancePrompt,
+      generateAudio: request.generateAudio,
     };
 
     if (!request.previousVideoPath && request.referenceImages.length > 0) {
       config.referenceImages = await buildReferenceImages(request.referenceImages);
     }
 
-    let operation = await withRateLimitBackoff(async () => {
-      return this.ai.models.generateVideos({
-        model: request.model,
-        source,
-        config,
+    const startOperation = async (currentConfig: GenerateVideosConfig) => {
+      return withRateLimitBackoff(async () => {
+        return this.ai.models.generateVideos({
+          model: request.model,
+          source,
+          config: currentConfig,
+        });
       });
-    });
+    };
+
+    const fallbackConfig = { ...config };
+    let operation: GenerateVideosOperation;
+    for (;;) {
+      try {
+        operation = await startOperation(fallbackConfig);
+        break;
+      } catch (error) {
+        if ("generateAudio" in fallbackConfig && request.generateAudio && isUnsupportedGenerateAudioError(error)) {
+          delete fallbackConfig.generateAudio;
+          continue;
+        }
+
+        if ("enhancePrompt" in fallbackConfig && request.enhancePrompt && isUnsupportedEnhancePromptError(error)) {
+          delete fallbackConfig.enhancePrompt;
+          continue;
+        }
+
+        if ("negativePrompt" in fallbackConfig && request.negativePrompt && isUnsupportedNegativePromptError(error)) {
+          delete fallbackConfig.negativePrompt;
+          continue;
+        }
+
+        if (
+          "personGeneration" in fallbackConfig &&
+          request.personGeneration &&
+          isUnsupportedPersonGenerationError(error)
+        ) {
+          delete fallbackConfig.personGeneration;
+          continue;
+        }
+
+        if ("seed" in fallbackConfig && request.seed !== undefined && isUnsupportedSeedError(error)) {
+          delete fallbackConfig.seed;
+          continue;
+        }
+
+        throw error;
+      }
+    }
 
     while (!operation.done) {
       await sleep(request.pollMs);
@@ -193,7 +306,7 @@ export class GeminiVideoClient {
 
     const remoteUri = generatedVideo.video?.uri;
 
-    await downloadVideo(this.ai, generatedVideo, request.outputPath);
+    await downloadVideo(this.ai, generatedVideo, request.outputPath, this.apiKey);
 
     return {
       operationName: operation.name,

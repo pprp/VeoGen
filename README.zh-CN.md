@@ -9,6 +9,7 @@
 ## 它能做什么
 
 - 用 Markdown 写场景和镜头，而不是手工拼接 API 请求
+- 从一个想法或现有剧本启动自动化多 Agent pipeline
 - 用 YAML frontmatter 维护项目配置和角色设定
 - 给角色、镜头和整体风格挂参考图
 - 在正式渲染前检查 Gemini 视频接口的关键约束
@@ -47,34 +48,73 @@ npm install --cache .npm-cache
 
 export GEMINI_API_KEY=your_key_here
 
-npm run plan -- --script projs/examples/demo-short.md
-npm run render -- --script projs/examples/demo-short.md --dry-run
+npm run plan -- --script projs/examples/demo-short.min.md
+npm run render -- --script projs/examples/demo-short.min.md --dry-run
 ```
 
 确认 dry-run 输出没有问题后，再正式渲染：
 
 ```bash
-npm run render -- --script projs/examples/demo-short.md
+npm run render -- --script projs/examples/demo-short.min.md
 ```
 
 如果你更喜欢用 `.env`，`run.sh` 会自动加载它：
 
 ```bash
 echo 'GEMINI_API_KEY=your_key_here' > .env
-bash run.sh dry-run projs/examples/demo-short.md
+bash run.sh dry-run projs/examples/demo-short.min.md
 ```
 
-第一次上手建议直接看 [`projs/examples/demo-short.md`](./projs/examples/demo-short.md)。
+第一次上手建议直接看 [`projs/examples/demo-short.min.md`](./projs/examples/demo-short.min.md)，它不需要额外参考图即可直接跑通。
+如果你想看带参考图的示例，再用 [`projs/examples/demo-short.md`](./projs/examples/demo-short.md)。
+
+## Agent Pipeline
+
+仓库现在包含一个更高层的 `pipeline` 命令，会串起五个 Agent：
+
+- 剧本生成 Agent
+- 剧本审核 Agent
+- 角色创建 Agent
+- 角色评估 Agent
+- 导演 Agent
+
+这条 pipeline 可以从一个想法或现有剧本起步，把所有中间产物写到 `outputs/.../development/`，生成最终 markdown 剧本，再把这个剧本交给现有的 Veo 渲染/拼接流程。
+如果剧本审核 Agent 判定存在明确问题，pipeline 现在还会自动插入一轮剧本修订 Agent，再继续后续角色和导演环节。
+如果启用了角色图生成，多角色项目会先生成共享的 `cast-lineup.png` 阵容母版；当图片编辑能力可用时，再从这张母版派生单人角色参考图。角色评估 Agent 会在一致性分数低于阈值时自动触发角色图返工。
+
+Dry-run 示例：
+
+```bash
+npm run dev -- pipeline \
+  --idea "A burnt-out courier races through a flooded neon city with a stolen memory drive before sunrise." \
+  --dry-run \
+  --skip-character-images
+```
+
+完整运行需要：
+
+- `GEMINI_API_KEY`，用于剧本/评审/导演/角色评估 Agent、角色图生成，以及最终视频渲染阶段
+
+常用选项：
+
+- `--script <path>`：从现有剧本启动，而不是从 idea 启动
+- `--skip-render`：只产出最终剧本和 planning 产物，不执行最终视频生成
+- `--skip-character-images`：跳过角色图生成，让开发阶段保持纯文本
+- `--character-threshold <score>`：控制角色一致性分数低于多少时自动触发返工
+- `--character-refinement-rounds <count>`：限制自动角色返工最多跑几轮，默认 `2`
+- `--model <name>`：覆盖最终渲染阶段使用的 Veo 模型
 
 ## 常用命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `npm run plan -- --script projs/examples/demo-short.md` | 解析脚本并生成渲染计划，不调用 Gemini |
-| `npm run render -- --script projs/examples/demo-short.md --dry-run` | 生成 prompts、plan 和 manifest，但不发起 API 请求 |
-| `npm run render -- --script projs/examples/demo-short.md` | 真正生成 clips 并尝试拼接 |
-| `npm run render -- --script projs/examples/demo-short.md --shot 2 --shot scene-03-shot-01` | 只重跑选中的镜头 |
-| `npm run render -- --script projs/examples/demo-short.md --skip-stitch` | 生成 clips，但跳过 `ffmpeg` 拼接 |
+| `npm run dev -- pipeline --idea "your idea" --dry-run --skip-character-images` | 从一个想法启动自动化 Agent pipeline，但不调用外部生成 API |
+| `npm run dev -- pipeline --script projs/examples/demo-short.min.md --dry-run` | 从现有剧本启动自动化 Agent pipeline |
+| `npm run plan -- --script projs/examples/demo-short.min.md` | 解析最小内置脚本并生成渲染计划，不调用 Gemini |
+| `npm run render -- --script projs/examples/demo-short.min.md --dry-run` | 为最小内置脚本生成 prompts、plan 和 manifest，但不发起 API 请求 |
+| `npm run render -- --script projs/examples/demo-short.min.md` | 真正生成最小内置脚本的 clips 并尝试拼接 |
+| `npm run render -- --script projs/examples/demo-short.min.md --shot 2 --shot scene-01-shot-03` | 只重跑最小内置脚本中的指定镜头 |
+| `npm run render -- --script projs/examples/demo-short.md --skip-stitch` | 生成带参考图的示例，但跳过 `ffmpeg` 拼接 |
 | `npm run dev -- stitch --manifest outputs/<run-id>/manifest.json` | 基于已有 manifest 重新拼接 |
 | `npm run typecheck` | 执行 TypeScript 类型检查 |
 
@@ -85,7 +125,7 @@ bash run.sh dry-run projs/examples/demo-short.md
 ```bash
 bash run.sh
 bash run.sh fast
-bash run.sh plan projs/examples/demo-short.md
+bash run.sh plan projs/examples/demo-short.min.md
 bash run.sh render drawio-proj --shot last
 bash run.sh stitch --manifest outputs/some-run/manifest.json
 ```
@@ -96,7 +136,7 @@ bash run.sh stitch --manifest outputs/some-run/manifest.json
 
 ```text
 src/                         核心解析器、规划器、prompt 构建、Gemini 客户端、拼接器
-projs/examples/              最小可运行示例
+projs/examples/              内置示例入口，包含最小版本和带参考图版本
 projs/Fitness-proj/          较完整的示例项目
 projs/drawio-proj/           参考图更重的示例项目
 outputs/                     运行产物，包括计划、prompts、clips、manifest 和成片
@@ -156,7 +196,7 @@ references:
 | `defaultClipDurationSec` | 默认镜头时长，最大 `8` |
 | `generateAudio` | 是否生成音频 |
 | `enhancePrompt` | 是否启用 prompt enhancement |
-| `personGeneration` | `allow_adult`、`dont_allow` 或 `allow_all` |
+| `personGeneration` | `allow_adult` 或 `dont_allow` |
 | `negativePrompt` | 可选的负面提示词 |
 | `style` | 可选的全局风格描述 |
 | `styleReferenceImages` | 项目级风格参考图 |
@@ -164,7 +204,7 @@ references:
 | `seed` | 可选的项目级随机种子 |
 | `characters` | 角色数组，每个角色可带 `referenceImages` |
 
-说明：`generateAudio`、`enhancePrompt`、`negativePrompt` 和 `seed` 已经进入脚本 schema，也会保留在计划输出里，但当前的 Gemini 请求适配层还没有把它们全部完整接通。
+说明：`generateAudio`、`enhancePrompt`、`negativePrompt` 和 `seed` 现在都会在真正发起渲染请求时端到端生效。
 
 ## Shot YAML 字段
 
@@ -205,6 +245,7 @@ outputs/<run-id>/
 ## 关键行为说明
 
 - 参考图有预算限制。系统会优先选择当前镜头活跃角色的参考图和镜头级参考图；如果还有空位，再补 1 张风格参考图。
+- 创作 pipeline 会先用共享阵容母版生成多角色参考，再产出单人角色 sheet，以降低首轮角色风格漂移。
 - 请求 `1080p` 或携带参考图时，规划阶段会自动把镜头时长修正为 8 秒。
 - 如果某个镜头设置了 `continueFromPrevious: true`，VeoGen 会把它切换成视频续写模式，并移除该请求中的参考图。
 - `--shot` 支持全局镜头序号、shot id，或者 `last`。

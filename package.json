@@ -14,6 +14,7 @@
     "plan": "tsx src/cli.ts plan",
     "render": "tsx src/cli.ts render",
     "start": "node dist/cli.js",
+    "test": "node --import tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

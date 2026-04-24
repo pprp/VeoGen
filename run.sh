@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-DEFAULT_SCRIPT="projs/Fitness-proj/demo-short.render.md"
+DEFAULT_SCRIPT="projs/examples/demo-short.min.md"
 
 usage() {
   cat <<'EOF'
@@ -22,16 +22,16 @@ Actions:
 
 Defaults:
   action: render
-  script: projs/Fitness-proj/demo-short.render.md
+  script: projs/examples/demo-short.min.md
 
 Examples:
   bash run.sh
   bash run.sh fast
   bash run.sh plan
-  bash run.sh render projs/Fitness-proj/demo-short.render.md --output outputs/my-run
+  bash run.sh render projs/examples/demo-short.min.md --output outputs/my-run
   bash run.sh fast projs/Fitness-proj/demo-short.render.part3.md
   bash run.sh render drawio-proj --shot last
-  bash run.sh plan projs/examples/demo-short.md
+  bash run.sh plan projs/examples
   bash run.sh stitch --manifest outputs/some-run/manifest.json
 
 Options:
@@ -80,6 +80,10 @@ resolve_script() {
   fi
 
   if [[ -d "$candidate" ]]; then
+    if [[ -f "$candidate/demo-short.min.md" ]]; then
+      echo "$candidate/demo-short.min.md"
+      return
+    fi
     if [[ -f "$candidate/demo-short.render.md" ]]; then
       echo "$candidate/demo-short.render.md"
       return

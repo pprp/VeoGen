@@ -24,7 +24,7 @@ export const projectConfigSchema = z.object({
   defaultClipDurationSec: z.number().int().positive().max(8).default(8),
   generateAudio: z.boolean().default(true),
   enhancePrompt: z.boolean().default(true),
-  personGeneration: z.enum(["allow_adult", "dont_allow", "allow_all"]).default("allow_adult"),
+  personGeneration: z.enum(["allow_adult", "dont_allow"]).default("allow_adult"),
   negativePrompt: z.string().optional(),
   style: z.string().optional(),
   styleReferenceImages: z.array(z.string()).default([]),

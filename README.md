@@ -9,6 +9,7 @@ Status: experimental `v0.1`. The repository is meant to be run from source and i
 ## What It Does
 
 - Write scenes and shots in Markdown instead of hard-coding requests.
+- Run an automated multi-agent pipeline from an idea or a script.
 - Store project settings and character definitions in YAML frontmatter.
 - Attach character, shot, and style reference images.
 - Preflight current Gemini video API constraints before a render starts.
@@ -47,34 +48,73 @@ npm install --cache .npm-cache
 
 export GEMINI_API_KEY=your_key_here
 
-npm run plan -- --script projs/examples/demo-short.md
-npm run render -- --script projs/examples/demo-short.md --dry-run
+npm run plan -- --script projs/examples/demo-short.min.md
+npm run render -- --script projs/examples/demo-short.min.md --dry-run
 ```
 
 If the dry run looks correct, do a real render:
 
 ```bash
-npm run render -- --script projs/examples/demo-short.md
+npm run render -- --script projs/examples/demo-short.min.md
 ```
 
 If you prefer a local `.env` file, `run.sh` loads it automatically:
 
 ```bash
 echo 'GEMINI_API_KEY=your_key_here' > .env
-bash run.sh dry-run projs/examples/demo-short.md
+bash run.sh dry-run projs/examples/demo-short.min.md
 ```
 
-Start with [`projs/examples/demo-short.md`](./projs/examples/demo-short.md) if you want the smallest working script.
+Start with [`projs/examples/demo-short.min.md`](./projs/examples/demo-short.min.md) if you want the smallest working script with no reference-image setup.
+If you want a reference-image example, use [`projs/examples/demo-short.md`](./projs/examples/demo-short.md).
+
+## Agent Pipeline
+
+The repository now includes a higher-level `pipeline` command that chains five agents:
+
+- Script Writer Agent
+- Script Review Agent
+- Character Creation Agent
+- Character Evaluation Agent
+- Director Agent
+
+The pipeline can start from either an idea or an existing script, writes all intermediate artifacts under `outputs/.../development/`, materializes a final markdown script, and then hands that script to the existing Veo render/stitch flow.
+If the Script Review Agent flags concrete issues, the pipeline now inserts a Script Revision Agent pass automatically before character generation and direction.
+If character-image generation is enabled, multi-character projects first generate a shared `cast-lineup.png` visual master, then derive single-character references from that lineup when image editing is available. The Character Evaluation Agent can trigger automatic regeneration passes when the consistency score falls below the configured threshold.
+
+Dry-run example:
+
+```bash
+npm run dev -- pipeline \
+  --idea "A burnt-out courier races through a flooded neon city with a stolen memory drive before sunrise." \
+  --dry-run \
+  --skip-character-images
+```
+
+Full run requirements:
+
+- `GEMINI_API_KEY` for the creative agents, character image generation, and the final video render stage
+
+Useful options:
+
+- `--script <path>` to start from an existing script instead of an idea
+- `--skip-render` to stop after producing the final script and planning artifacts
+- `--skip-character-images` to keep the development pipeline text-only
+- `--character-threshold <score>` to control when automatic character regeneration starts
+- `--character-refinement-rounds <count>` to cap how many regeneration loops run; default is `2`
+- `--model <name>` to override the Veo model used in the final render stage
 
 ## Common Commands
 
 | Command | Purpose |
 | --- | --- |
-| `npm run plan -- --script projs/examples/demo-short.md` | Parse the script and build a render plan without calling Gemini |
-| `npm run render -- --script projs/examples/demo-short.md --dry-run` | Build prompts, plan, and manifest without API calls |
-| `npm run render -- --script projs/examples/demo-short.md` | Generate clips and stitch them |
-| `npm run render -- --script projs/examples/demo-short.md --shot 2 --shot scene-03-shot-01` | Re-run only selected shots |
-| `npm run render -- --script projs/examples/demo-short.md --skip-stitch` | Generate clips but skip `ffmpeg` stitching |
+| `npm run dev -- pipeline --idea "your idea" --dry-run --skip-character-images` | Run the automated agent pipeline from an idea without calling external generation APIs |
+| `npm run dev -- pipeline --script projs/examples/demo-short.min.md --dry-run` | Run the automated agent pipeline starting from an existing script |
+| `npm run plan -- --script projs/examples/demo-short.min.md` | Parse the smallest bundled script and build a render plan without calling Gemini |
+| `npm run render -- --script projs/examples/demo-short.min.md --dry-run` | Build prompts, plan, and manifest for the smallest bundled script without API calls |
+| `npm run render -- --script projs/examples/demo-short.min.md` | Generate clips and stitch the smallest bundled script |
+| `npm run render -- --script projs/examples/demo-short.min.md --shot 2 --shot scene-01-shot-03` | Re-run only selected shots from the smallest bundled script |
+| `npm run render -- --script projs/examples/demo-short.md --skip-stitch` | Generate the reference-image example but skip `ffmpeg` stitching |
 | `npm run dev -- stitch --manifest outputs/<run-id>/manifest.json` | Stitch completed clips from an existing manifest |
 | `npm run typecheck` | Run TypeScript type checking |
 
@@ -85,7 +125,7 @@ Start with [`projs/examples/demo-short.md`](./projs/examples/demo-short.md) if y
 ```bash
 bash run.sh
 bash run.sh fast
-bash run.sh plan projs/examples/demo-short.md
+bash run.sh plan projs/examples/demo-short.min.md
 bash run.sh render drawio-proj --shot last
 bash run.sh stitch --manifest outputs/some-run/manifest.json
 ```
@@ -96,7 +136,7 @@ bash run.sh stitch --manifest outputs/some-run/manifest.json
 
 ```text
 src/                         core parser, planner, prompt builder, Gemini client, stitcher
-projs/examples/              minimal sample project
+projs/examples/              bundled onboarding scripts, including minimal and reference-image variants
 projs/Fitness-proj/          larger sample project
 projs/drawio-proj/           reference-heavy sample project
 outputs/                     generated plans, prompts, clips, manifests, final videos
@@ -156,7 +196,7 @@ Hero opens the door and finally steps inside.
 | `defaultClipDurationSec` | Default shot duration, max `8` |
 | `generateAudio` | Whether generated clips should include audio |
 | `enhancePrompt` | Whether prompt enhancement should be enabled |
-| `personGeneration` | `allow_adult`, `dont_allow`, or `allow_all` |
+| `personGeneration` | `allow_adult` or `dont_allow` |
 | `negativePrompt` | Optional negative prompt applied to shots |
 | `style` | Optional global style text |
 | `styleReferenceImages` | Optional project-level style references |
@@ -164,7 +204,7 @@ Hero opens the door and finally steps inside.
 | `seed` | Optional project seed |
 | `characters` | Array of character definitions, including optional `referenceImages` |
 
-Note: `generateAudio`, `enhancePrompt`, `negativePrompt`, and `seed` are already part of the script schema and are preserved in plan output, but the current Gemini request adapter does not apply all of them end-to-end yet.
+Note: `generateAudio`, `enhancePrompt`, `negativePrompt`, and `seed` are applied end-to-end during render requests.
 
 ## Shot YAML Reference
 
@@ -205,6 +245,7 @@ outputs/<run-id>/
 ## Important Behavior
 
 - Reference image selection is budgeted. Active character and shot references are chosen first, then one optional style reference if there is still room within the 3-image limit.
+- The creative pipeline generates multi-character references from a shared cast lineup master before producing individual character sheets, reducing first-pass style drift.
 - `1080p` requests and requests with reference images are forced to 8-second clips during planning.
 - If a shot sets `continueFromPrevious: true`, VeoGen switches that shot into video-extension mode and removes reference images for that request.
 - `--shot` accepts a global shot index, a shot id, or `last`.

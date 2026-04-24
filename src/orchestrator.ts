@@ -27,6 +27,7 @@ import {
   safeSlug,
   sleep,
   timestampId,
+  normalizeVeoModelName,
 } from "./utils.js";
 
 export interface BuildPlanOptions {
@@ -45,16 +46,17 @@ export interface RenderProjectOptions extends BuildPlanOptions {
 
 interface ReferenceCandidate extends SelectedReference {}
 const TRANSIENT_RENDER_ERRORS = [
+  "fetch failed",
+  '"code": 13',
+  "internal server issue",
   "Video generation completed without a generated video payload.",
   "Video generation completed without a downloadable video URI.",
 ];
+const RENDER_ATTEMPTS = 8;
+const RENDER_RETRY_DELAY_MS = 10_000;
 
-function resolveShotPersonGeneration(shot: PlannedShot, project: ProjectConfig): ProjectConfig["personGeneration"] {
-  if (shot.selectedReferences.length > 0) {
-    return project.personGeneration === "dont_allow" ? "dont_allow" : "allow_adult";
-  }
-
-  return "allow_all";
+function resolveShotPersonGeneration(_shot: PlannedShot, project: ProjectConfig): ProjectConfig["personGeneration"] {
+  return project.personGeneration;
 }
 
 function chooseRunDir(project: ProjectConfig, explicitOutputDir?: string): string {
@@ -161,9 +163,9 @@ async function selectReferences(
     };
   }
 
-  const styleSelection = styleCandidates.slice(0, 1);
-  const assetBudget = styleSelection.length > 0 ? 2 : 3;
-  const selectedAssets = assetCandidates.slice(0, assetBudget);
+  const selectedAssets = assetCandidates.slice(0, 3);
+  const remainingBudget = Math.max(0, 3 - selectedAssets.length);
+  const styleSelection = remainingBudget > 0 ? styleCandidates.slice(0, 1) : [];
   const selected = [...selectedAssets, ...styleSelection];
   const dropped = [
     ...assetCandidates.slice(selectedAssets.length),
@@ -303,9 +305,12 @@ export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: 
     options.modelOverride !== undefined
       ? {
           ...parsedProject.project,
-          model: options.modelOverride,
+          model: normalizeVeoModelName(options.modelOverride),
         }
-      : parsedProject.project;
+      : {
+          ...parsedProject.project,
+          model: normalizeVeoModelName(parsedProject.project.model),
+        };
 
   const runDir = chooseRunDir(project, options.outputDir);
   const planWarnings: string[] = [];
@@ -314,10 +319,17 @@ export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: 
 
   for (const scene of parsedProject.scenes) {
     for (const shot of scene.shots) {
-      const willUseVideoExtension = shot.meta.continueFromPrevious && previousParsedShot !== undefined;
+      const hasPreviousShot = previousParsedShot !== undefined;
+      const canUseVideoExtension = project.resolution === "720p";
+      const willUseVideoExtension = shot.meta.continueFromPrevious && hasPreviousShot && canUseVideoExtension;
       if (shot.meta.continueFromPrevious && !previousParsedShot) {
         planWarnings.push(
           `${shot.id}: continueFromPrevious was ignored because there is no prior clip to extend.`,
+        );
+      }
+      if (shot.meta.continueFromPrevious && hasPreviousShot && !canUseVideoExtension) {
+        planWarnings.push(
+          `${shot.id}: continueFromPrevious was downgraded to text-to-video because Gemini video extension currently requires 720p source clips.`,
         );
       }
 
@@ -339,6 +351,7 @@ export async function buildRenderPlan(options: BuildPlanOptions & { scriptPath: 
         },
         previousShot: previousParsedShot,
         hasReferenceImages: referenceSelection.selected.length > 0,
+        selectedReferences: referenceSelection.selected,
       });
 
       const clipBaseName = `${formatIndex(shot.globalIndex)}-${shot.id}.mp4`;
@@ -433,7 +446,7 @@ export async function renderProject(
       let result;
       let lastError: unknown;
 
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
+      for (let attempt = 1; attempt <= RENDER_ATTEMPTS; attempt += 1) {
         try {
           result = await client.generateClip({
             model: plan.project.model,
@@ -458,14 +471,16 @@ export async function renderProject(
               };
             }),
             previousVideoPath: previousCompletedShot?.outputPath,
+            previousVideoUri: previousCompletedShot?.remoteUri,
           });
           lastError = undefined;
           break;
         } catch (error) {
           lastError = error;
-          if (attempt === 3 || !isTransientRenderError(error)) {
+          if (attempt === RENDER_ATTEMPTS || !isTransientRenderError(error)) {
             throw error;
           }
+          await sleep(RENDER_RETRY_DELAY_MS);
         }
       }
 
