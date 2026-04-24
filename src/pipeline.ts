@@ -6,7 +6,6 @@ import YAML from "yaml";
 import { parseMarkdownScript } from "./markdown.js";
 import { renderProject } from "./orchestrator.js";
 import { GeminiCreativeClient, type GeminiCreativeLikeClient } from "./gemini-creative.js";
-import { OpenAIImageClient } from "./openai-image.js";
 import type {
   ParsedProject,
   ParsedScene,
@@ -19,7 +18,6 @@ type AspectRatio = "16:9" | "9:16";
 type Resolution = "720p" | "1080p";
 type PersonGeneration = "allow_adult" | "dont_allow";
 type SourceMode = "idea" | "script";
-type CharacterImageProvider = "gemini" | "openai";
 
 interface DevelopmentCharacter {
   id: string;
@@ -130,7 +128,7 @@ interface DirectorReport {
 
 interface AgentRun {
   name: string;
-  mode: "gemini" | "openai" | "fallback" | "ingested";
+  mode: "gemini" | "fallback" | "ingested";
   artifactPath: string;
   warnings: string[];
 }
@@ -148,10 +146,6 @@ export interface CreativePipelineOptions {
   pollMs?: number;
   interShotDelayMs?: number;
   apiKey?: string;
-  openAiApiKey?: string;
-  characterImageProvider?: CharacterImageProvider;
-  characterImageModel?: string;
-  characterEditModel?: string;
   characterConsistencyThreshold?: number;
   maxCharacterRefinementRounds?: number;
   geminiCreativeClient?: GeminiCreativeLikeClient;
@@ -176,102 +170,10 @@ const defaultPipelineModel = process.env.GEMINI_PIPELINE_MODEL ?? "gemini-2.5-fl
 const defaultReviewModel = process.env.GEMINI_REVIEW_MODEL ?? defaultPipelineModel;
 const defaultEvaluatorModel = process.env.GEMINI_EVALUATOR_MODEL ?? defaultPipelineModel;
 const defaultDirectorModel = process.env.GEMINI_DIRECTOR_MODEL ?? defaultPipelineModel;
-const defaultGeminiCharacterImageModel = process.env.GEMINI_CHARACTER_IMAGE_MODEL ?? "gemini-2.5-flash-image";
-const defaultOpenAICharacterImageModel = process.env.OPENAI_CHARACTER_IMAGE_MODEL ?? "gpt-image-2";
-const defaultCharacterEditModel = process.env.GEMINI_CHARACTER_EDIT_MODEL ?? defaultGeminiCharacterImageModel;
+const defaultCharacterImageModel = process.env.GEMINI_CHARACTER_IMAGE_MODEL ?? "gemini-2.5-flash-image";
+const defaultCharacterEditModel = process.env.GEMINI_CHARACTER_EDIT_MODEL ?? defaultCharacterImageModel;
 const defaultCharacterConsistencyThreshold = Number(process.env.CHARACTER_CONSISTENCY_THRESHOLD ?? "85");
 const defaultMaxCharacterRefinementRounds = Number(process.env.MAX_CHARACTER_REFINEMENT_ROUNDS ?? "2");
-
-class RoutedCreativeClient implements GeminiCreativeLikeClient {
-  constructor(
-    private readonly textClient: GeminiCreativeLikeClient,
-    private readonly imageClient: Pick<GeminiCreativeLikeClient, "generateImage">,
-  ) {}
-
-  async generateStructuredOutput<T>(
-    request: Parameters<GeminiCreativeLikeClient["generateStructuredOutput"]>[0],
-  ): Promise<T> {
-    return this.textClient.generateStructuredOutput<T>(request);
-  }
-
-  async analyzeImages<T>(
-    request: Parameters<GeminiCreativeLikeClient["analyzeImages"]>[0],
-  ): Promise<T> {
-    return this.textClient.analyzeImages<T>(request);
-  }
-
-  async generateImage(
-    request: Parameters<GeminiCreativeLikeClient["generateImage"]>[0],
-  ): Promise<string> {
-    return this.imageClient.generateImage(request);
-  }
-}
-
-function normalizeCharacterImageProvider(value: string | undefined): CharacterImageProvider {
-  if (!value) {
-    return "gemini";
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "gemini" || normalized === "openai") {
-    return normalized;
-  }
-
-  throw new Error(`Unsupported character image provider: ${value}`);
-}
-
-function resolveCharacterImageProvider(options: CreativePipelineOptions): CharacterImageProvider {
-  return options.characterImageProvider ??
-    normalizeCharacterImageProvider(process.env.CHARACTER_IMAGE_PROVIDER);
-}
-
-function resolveCharacterImageModel(
-  options: CreativePipelineOptions,
-  provider: CharacterImageProvider,
-): string {
-  if (options.characterImageModel) {
-    return options.characterImageModel;
-  }
-
-  return provider === "openai" ? defaultOpenAICharacterImageModel : defaultGeminiCharacterImageModel;
-}
-
-function resolveCharacterEditModel(
-  options: CreativePipelineOptions,
-  imageModel: string,
-  provider: CharacterImageProvider,
-): string {
-  if (options.characterEditModel) {
-    return options.characterEditModel;
-  }
-
-  return provider === "openai" ? imageModel : defaultCharacterEditModel;
-}
-
-function createCreativeClient(input: {
-  baseClient: GeminiCreativeLikeClient | undefined;
-  imageProvider: CharacterImageProvider;
-  imageApiKey: string | undefined;
-  willGenerateImages: boolean;
-}): GeminiCreativeLikeClient | undefined {
-  if (!input.baseClient) {
-    return undefined;
-  }
-
-  if (input.imageProvider === "gemini") {
-    return input.baseClient;
-  }
-
-  if (input.willGenerateImages && !input.imageApiKey) {
-    throw new Error("OPENAI_API_KEY is required when --character-image-provider openai is used.");
-  }
-
-  if (!input.imageApiKey) {
-    return input.baseClient;
-  }
-
-  return new RoutedCreativeClient(input.baseClient, new OpenAIImageClient(input.imageApiKey));
-}
 
 const storySpecSchema: Record<string, unknown> = {
   type: "object",
@@ -1637,14 +1539,12 @@ async function generateCharacterReferenceImage(
   prompt: string,
   outputPath: string,
   lineupImagePath: string | undefined,
-  imageModel: string,
-  editModel: string,
 ): Promise<{ imagePath: string; warnings: string[] }> {
   if (lineupImagePath && client.editImage) {
     try {
       return {
         imagePath: await client.editImage({
-          model: editModel,
+          model: defaultCharacterEditModel,
           prompt,
           outputPath,
           baseImagePath: lineupImagePath,
@@ -1658,7 +1558,7 @@ async function generateCharacterReferenceImage(
       const fallbackPrompt = createCharacterImagePrompt(spec, character);
       return {
         imagePath: await client.generateImage({
-          model: imageModel,
+          model: defaultCharacterImageModel,
           prompt: fallbackPrompt,
           outputPath,
           size: "1024x1536",
@@ -1672,7 +1572,7 @@ async function generateCharacterReferenceImage(
 
   return {
     imagePath: await client.generateImage({
-      model: imageModel,
+      model: defaultCharacterImageModel,
       prompt,
       outputPath,
       size: "1024x1536",
@@ -1686,9 +1586,6 @@ async function runCharacterCreationAgent(
   refsDir: string,
   client: GeminiCreativeLikeClient | undefined,
   options: CreativePipelineOptions,
-  imageProvider: CharacterImageProvider,
-  imageModel: string,
-  editModel: string,
   artifactPath: string,
 ): Promise<{ pack: CharacterPack; mode: AgentRun["mode"]; warnings: string[] }> {
   const warnings: string[] = [];
@@ -1704,7 +1601,7 @@ async function runCharacterCreationAgent(
     pack.lineupPrompt = createCastLineupPrompt(spec);
     try {
       pack.lineupImagePath = await client.generateImage({
-        model: imageModel,
+        model: defaultCharacterImageModel,
         prompt: pack.lineupPrompt,
         outputPath: path.join(refsDir, "cast-lineup.png"),
         size: "1536x1024",
@@ -1750,8 +1647,6 @@ async function runCharacterCreationAgent(
           imagePrompt,
           outputPath,
           pack.lineupImagePath,
-          imageModel,
-          editModel,
         );
         asset.imagePath = generated.imagePath;
         warnings.push(...generated.warnings);
@@ -1770,7 +1665,7 @@ async function runCharacterCreationAgent(
   await writeJson(artifactPath, pack);
   return {
     pack,
-    mode: client && !options.skipCharacterImages ? imageProvider : "fallback",
+    mode: client && !options.skipCharacterImages ? "gemini" : "fallback",
     warnings,
   };
 }
@@ -1827,9 +1722,6 @@ async function rerunCharacterCreationAgent(
   evaluation: CharacterEvaluationReport,
   refsDir: string,
   client: GeminiCreativeLikeClient,
-  imageProvider: CharacterImageProvider,
-  imageModel: string,
-  editModel: string,
   artifactPath: string,
 ): Promise<{ pack: CharacterPack; mode: AgentRun["mode"]; warnings: string[] }> {
   const warnings: string[] = [];
@@ -1882,7 +1774,7 @@ async function rerunCharacterCreationAgent(
       const revisionStyleImagePath = selectRevisionStyleImagePath(currentPack, styleMasterAsset, existingAsset);
       if (client.editImage && revisionStyleImagePath) {
         revisedAsset.imagePath = await client.editImage({
-          model: editModel,
+          model: defaultCharacterEditModel,
           prompt: revisedPrompt,
           outputPath,
           baseImagePath: existingAsset.imagePath,
@@ -1892,7 +1784,7 @@ async function rerunCharacterCreationAgent(
         });
       } else {
         revisedAsset.imagePath = await client.generateImage({
-          model: imageModel,
+          model: defaultCharacterImageModel,
           prompt: revisedPrompt,
           outputPath,
           size: "1024x1536",
@@ -1914,7 +1806,7 @@ async function rerunCharacterCreationAgent(
   await writeJson(artifactPath, nextPack);
   return {
     pack: nextPack,
-    mode: imageProvider,
+    mode: "gemini",
     warnings,
   };
 }
@@ -1978,13 +1870,6 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
   const agentRuns: AgentRun[] = [];
   const characterConsistencyThreshold = clampConsistencyThreshold(options.characterConsistencyThreshold);
   const maxCharacterRefinementRounds = clampRefinementRounds(options.maxCharacterRefinementRounds);
-  const characterImageProvider = resolveCharacterImageProvider(options);
-  const characterImageModel = resolveCharacterImageModel(options, characterImageProvider);
-  const characterEditModel = resolveCharacterEditModel(
-    options,
-    characterImageModel,
-    characterImageProvider,
-  );
 
   const intakeArtifactPath = path.join(developmentDir, "00-intake.json");
   await writeJson(intakeArtifactPath, {
@@ -1998,19 +1883,13 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
     (options.dryRun || !geminiApiKey
       ? undefined
       : new GeminiCreativeClient(geminiApiKey));
-  const creativeClient = createCreativeClient({
-    baseClient: geminiCreativeClient,
-    imageProvider: characterImageProvider,
-    imageApiKey: options.openAiApiKey ?? process.env.OPENAI_API_KEY,
-    willGenerateImages: !options.dryRun && !options.skipCharacterImages,
-  });
 
   const writerArtifactPath = path.join(developmentDir, "01-script-writer.json");
   const writerResult = await runScriptWriterAgent(
     sourceMode,
     sourceText,
     existingScriptPath,
-    creativeClient,
+    geminiCreativeClient,
     writerArtifactPath,
   );
   warnings.push(...writerResult.warnings);
@@ -2023,7 +1902,7 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
   let workingSpec = writerResult.spec;
 
   const reviewArtifactPath = path.join(developmentDir, "02-script-review.json");
-  const reviewResult = await runScriptReviewAgent(workingSpec, creativeClient, reviewArtifactPath);
+  const reviewResult = await runScriptReviewAgent(workingSpec, geminiCreativeClient, reviewArtifactPath);
   warnings.push(...reviewResult.warnings);
   agentRuns.push({
     name: "script-review",
@@ -2037,7 +1916,7 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
     const revisionResult = await runScriptRevisionAgent(
       workingSpec,
       reviewResult.review,
-      creativeClient,
+      geminiCreativeClient,
       revisionArtifactPath,
     );
     warnings.push(...revisionResult.warnings);
@@ -2054,11 +1933,8 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
   const characterResult = await runCharacterCreationAgent(
     workingSpec,
     refsDir,
-    creativeClient,
+    geminiCreativeClient,
     options,
-    characterImageProvider,
-    characterImageModel,
-    characterEditModel,
     characterArtifactPath,
   );
   warnings.push(...characterResult.warnings);
@@ -2075,7 +1951,7 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
   let evaluationResult = await runCharacterEvaluationAgent(
     workingSpec,
     characterPack,
-    creativeClient,
+    geminiCreativeClient,
     evaluationArtifactPath,
   );
   warnings.push(...evaluationResult.warnings);
@@ -2093,7 +1969,7 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
       evaluationResult.evaluation,
       characterConsistencyThreshold,
       remainingRefinementRounds,
-      creativeClient,
+      geminiCreativeClient,
       options,
     )
   ) {
@@ -2107,10 +1983,7 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
       characterPack,
       evaluationResult.evaluation,
       refsDir,
-      creativeClient as GeminiCreativeLikeClient,
-      characterImageProvider,
-      characterImageModel,
-      characterEditModel,
+      geminiCreativeClient as GeminiCreativeLikeClient,
       refinementCharacterArtifactPath,
     );
     warnings.push(...refinementCharacterResult.warnings);
@@ -2129,7 +2002,7 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
     evaluationResult = await runCharacterEvaluationAgent(
       workingSpec,
       characterPack,
-      creativeClient,
+      geminiCreativeClient,
       refinementEvaluationArtifactPath,
     );
     warnings.push(...evaluationResult.warnings);
@@ -2148,7 +2021,7 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
     workingSpec,
     reviewResult.review,
     evaluationResult.evaluation,
-    creativeClient,
+    geminiCreativeClient,
     directorArtifactPath,
   );
   warnings.push(...directorResult.warnings);
@@ -2188,8 +2061,6 @@ export async function runCreativePipeline(options: CreativePipelineOptions): Pro
     agentRuns,
     characterConsistencyThreshold,
     maxCharacterRefinementRounds,
-    characterImageProvider,
-    characterImageModel,
     finalCharacterConsistencyScore: evaluationResult.evaluation.styleConsistencyScore,
   });
 

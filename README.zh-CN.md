@@ -94,15 +94,12 @@ npm run dev -- pipeline \
 完整运行需要：
 
 - `GEMINI_API_KEY`，用于剧本/评审/导演/角色评估 Agent、角色图生成，以及最终视频渲染阶段
-- 只有当你用 `--character-image-provider openai` 选择 OpenAI 生成角色参考图时，才需要 `OPENAI_API_KEY`
 
 常用选项：
 
 - `--script <path>`：从现有剧本启动，而不是从 idea 启动
 - `--skip-render`：只产出最终剧本和 planning 产物，不执行最终视频生成
 - `--skip-character-images`：跳过角色图生成，让开发阶段保持纯文本
-- `--character-image-provider gemini|openai`：选择角色参考图生成后端
-- `--character-image-model <model>`：覆盖图片模型，例如使用 OpenAI 时指定 `gpt-image-2`
 - `--character-threshold <score>`：控制角色一致性分数低于多少时自动触发返工
 - `--character-refinement-rounds <count>`：限制自动角色返工最多跑几轮，默认 `2`
 - `--model <name>`：覆盖最终渲染阶段使用的 Veo 模型
