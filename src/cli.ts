@@ -63,6 +63,8 @@ program
   .option("--dry-run", "Run agent development and render planning without calling external generation APIs", false)
   .option("--skip-render", "Stop after generating the final script and development artifacts", false)
   .option("--skip-character-images", "Skip Gemini character image generation and keep the pipeline text-only", false)
+  .option("--character-image-provider <provider>", "Character image provider: gemini or openai", "gemini")
+  .option("--character-image-model <model>", "Override the character reference image model")
   .option("--character-threshold <score>", "Minimum character consistency score before triggering an automatic regeneration loop", "85")
   .option("--character-refinement-rounds <count>", "Maximum automatic character regeneration rounds", "2")
   .option("--poll-ms <ms>", "Polling interval for long-running Gemini operations", "30000")
@@ -78,6 +80,8 @@ program
       dryRun: options.dryRun,
       skipRender: options.skipRender,
       skipCharacterImages: options.skipCharacterImages,
+      characterImageProvider: options.characterImageProvider,
+      characterImageModel: options.characterImageModel,
       characterConsistencyThreshold: Number(options.characterThreshold),
       maxCharacterRefinementRounds: Number(options.characterRefinementRounds),
       pollMs: Number(options.pollMs),

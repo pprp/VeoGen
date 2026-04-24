@@ -94,12 +94,15 @@ npm run dev -- pipeline \
 Full run requirements:
 
 - `GEMINI_API_KEY` for the creative agents, character image generation, and the final video render stage
+- `OPENAI_API_KEY` only if you select OpenAI character reference images with `--character-image-provider openai`
 
 Useful options:
 
 - `--script <path>` to start from an existing script instead of an idea
 - `--skip-render` to stop after producing the final script and planning artifacts
 - `--skip-character-images` to keep the development pipeline text-only
+- `--character-image-provider gemini|openai` to choose the character reference image backend
+- `--character-image-model <model>` to override the image model, for example `gpt-image-2` when using OpenAI
 - `--character-threshold <score>` to control when automatic character regeneration starts
 - `--character-refinement-rounds <count>` to cap how many regeneration loops run; default is `2`
 - `--model <name>` to override the Veo model used in the final render stage
