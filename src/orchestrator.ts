@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { parseMarkdownScript } from "./markdown.js";
 import { buildShotPrompt } from "./prompt.js";
 import { GeminiVideoClient } from "./gemini.js";
-import { stitchVideos } from "./stitch.js";
+import { stitchVideoSegments, type ClipSegment } from "./stitch.js";
 import type {
   ManifestShot,
   ParsedProject,
@@ -217,10 +217,23 @@ async function persistManifest(manifest: RenderManifest): Promise<void> {
   await writeJson(path.join(manifest.runDir, "manifest.json"), manifest);
 }
 
-function collectClipPaths(manifest: RenderManifest): string[] {
-  return manifest.shots
-    .filter((shot) => shot.status === "completed")
-    .map((shot) => shot.outputPath);
+function collectClipSegments(manifest: RenderManifest): ClipSegment[] {
+  const segments: ClipSegment[] = [];
+  let previousCompletedDurationSec: number | undefined;
+
+  for (const shot of manifest.shots) {
+    if (shot.status !== "completed") {
+      continue;
+    }
+
+    segments.push({
+      path: shot.outputPath,
+      startSec: shot.mode === "video-extension" ? previousCompletedDurationSec : undefined,
+    });
+    previousCompletedDurationSec = shot.durationSec;
+  }
+
+  return segments;
 }
 
 function isTransientRenderError(error: unknown): boolean {
@@ -505,10 +518,10 @@ export async function renderProject(
   }
 
   if (!options.skipStitch) {
-    const clipPaths = collectClipPaths(manifest);
-    if (clipPaths.length > 1) {
+    const clipSegments = collectClipSegments(manifest);
+    if (clipSegments.length > 1) {
       const finalVideoPath = path.join(plan.runDir, "final-video.mp4");
-      await stitchVideos(clipPaths, finalVideoPath);
+      await stitchVideoSegments(clipSegments, finalVideoPath);
       manifest.finalVideoPath = finalVideoPath;
       await persistManifest(manifest);
     }
@@ -523,13 +536,13 @@ export async function stitchFromManifest(
 ): Promise<string> {
   const absoluteManifestPath = path.resolve(manifestPath);
   const manifest = JSON.parse(await fs.readFile(absoluteManifestPath, "utf8")) as RenderManifest;
-  const clipPaths = collectClipPaths(manifest);
+  const clipSegments = collectClipSegments(manifest);
   const outputPath =
     explicitOutputPath !== undefined
       ? path.resolve(explicitOutputPath)
       : path.join(manifest.runDir, "final-video.mp4");
 
-  await stitchVideos(clipPaths, outputPath);
+  await stitchVideoSegments(clipSegments, outputPath);
   manifest.finalVideoPath = outputPath;
   await persistManifest(manifest);
   return outputPath;
