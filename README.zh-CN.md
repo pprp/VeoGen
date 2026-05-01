@@ -78,17 +78,34 @@ bash run.sh dry-run projs/examples/demo-short.min.md
 - 角色评估 Agent
 - 导演 Agent
 
-这条 pipeline 可以从一个想法或现有剧本起步，把所有中间产物写到 `outputs/.../development/`，生成最终 markdown 剧本，再把这个剧本交给现有的 Veo 渲染/拼接流程。
+这条 pipeline 可以从一个想法或现有剧本起步，把所有中间产物写到 `outputs/.../development/`，生成最终 markdown 剧本，并且现在默认停在这里，方便你先审稿、修改、确认，再决定是否开始渲染。
+只有显式传入 `--render`，它才会继续进入 render planning 和视频生成阶段。
 如果剧本审核 Agent 判定存在明确问题，pipeline 现在还会自动插入一轮剧本修订 Agent，再继续后续角色和导演环节。
 如果启用了角色图生成，多角色项目会先生成共享的 `cast-lineup.png` 阵容母版；当图片编辑能力可用时，再从这张母版派生单人角色参考图。角色评估 Agent 会在一致性分数低于阈值时自动触发角色图返工。
 
-Dry-run 示例：
+默认先审稿的示例：
 
 ```bash
 npm run dev -- pipeline \
   --idea "A burnt-out courier races through a flooded neon city with a stolen memory drive before sunrise." \
+  --skip-character-images
+```
+
+如果你确认要让 pipeline 继续进入渲染规划或正式渲染，必须显式 opt-in：
+
+```bash
+npm run dev -- pipeline \
+  --idea "A burnt-out courier races through a flooded neon city with a stolen memory drive before sunrise." \
+  --render \
   --dry-run \
   --skip-character-images
+```
+
+审完剧本之后，最简单的下一步通常是：
+
+```bash
+npm run render -- --script outputs/<run-id>/development/final-script.md --dry-run
+npm run render -- --script outputs/<run-id>/development/final-script.md
 ```
 
 完整运行需要：
@@ -98,7 +115,8 @@ npm run dev -- pipeline \
 常用选项：
 
 - `--script <path>`：从现有剧本启动，而不是从 idea 启动
-- `--skip-render`：只产出最终剧本和 planning 产物，不执行最终视频生成
+- `--render`：在最终剧本生成后，显式继续进入 render planning / 视频生成
+- `--skip-render`：强制停在最终剧本这一步；现在它已经是默认行为，主要用于兼容旧调用
 - `--skip-character-images`：跳过角色图生成，让开发阶段保持纯文本
 - `--character-threshold <score>`：控制角色一致性分数低于多少时自动触发返工
 - `--character-refinement-rounds <count>`：限制自动角色返工最多跑几轮，默认 `2`
@@ -108,8 +126,9 @@ npm run dev -- pipeline \
 
 | 命令 | 作用 |
 | --- | --- |
-| `npm run dev -- pipeline --idea "your idea" --dry-run --skip-character-images` | 从一个想法启动自动化 Agent pipeline，但不调用外部生成 API |
-| `npm run dev -- pipeline --script projs/examples/demo-short.min.md --dry-run` | 从现有剧本启动自动化 Agent pipeline |
+| `npm run dev -- pipeline --idea "your idea" --skip-character-images` | 先生成最终剧本和开发产物，然后停下来给你审稿 |
+| `npm run dev -- pipeline --idea "your idea" --render --dry-run --skip-character-images` | 生成最终剧本后继续做 render planning，但不调用视频 API |
+| `npm run dev -- pipeline --script projs/examples/demo-short.min.md` | 从现有剧本启动 pipeline，并默认停在可审稿的最终剧本阶段 |
 | `npm run plan -- --script projs/examples/demo-short.min.md` | 解析最小内置脚本并生成渲染计划，不调用 Gemini |
 | `npm run render -- --script projs/examples/demo-short.min.md --dry-run` | 为最小内置脚本生成 prompts、plan 和 manifest，但不发起 API 请求 |
 | `npm run render -- --script projs/examples/demo-short.min.md` | 真正生成最小内置脚本的 clips 并尝试拼接 |

@@ -21,7 +21,7 @@ async function writeTinyPng(filePath: string): Promise<void> {
   await fs.writeFile(filePath, onePixelPng);
 }
 
-test("creative pipeline can turn an idea into a dry-run short-film package", async () => {
+test("creative pipeline stops after the final script by default and emits Chinese fallback script text", async () => {
   const outputDir = await makeTempDir("veogen-pipeline-");
   const result = await runCreativePipeline({
     idea: "A burnt-out night courier must cross a flooded neon city with a memory drive before sunrise.",
@@ -32,18 +32,47 @@ test("creative pipeline can turn an idea into a dry-run short-film package", asy
 
   assert.equal(result.sourceMode, "idea");
   assert.equal(result.runDir, outputDir);
+  assert.equal(result.renderRequested, false);
+  assert.equal(result.renderManifestPath, undefined);
 
   const finalScript = await fs.readFile(result.finalScriptPath, "utf8");
-  assert.match(finalScript, /Director intent:/);
+  assert.match(finalScript, /# 开场/);
+  assert.match(finalScript, /## 世界建立/);
+  assert.match(finalScript, /导演意图：/);
+  assert.match(finalScript, /林夏/);
   assert.match(finalScript, /Do not alternate between photoreal/);
-  assert.match(finalScript, /stylized 3D looks/);
+  assert.match(finalScript, /stylized 3D\s+looks/);
   assert.match(finalScript, /burned-in dialogue\s+words/);
 
   const parsedProject = await parseMarkdownScript(result.finalScriptPath);
   assert.ok(parsedProject.project.characters.length >= 1);
   assert.ok(parsedProject.scenes.length >= 1);
+  await assert.rejects(fs.access(path.join(outputDir, "render", "manifest.json")));
 
-  const manifestRaw = await fs.readFile(result.renderManifestPath, "utf8");
+  const agentArtifacts = result.agentRuns.map((agentRun) => path.basename(agentRun.artifactPath));
+  assert.deepEqual(agentArtifacts, [
+    "01-script-writer.json",
+    "02-script-review.json",
+    "03-character-pack.json",
+    "04-character-evaluation.json",
+    "05-director-report.json",
+  ]);
+});
+
+test("creative pipeline only creates render artifacts when render is explicitly requested", async () => {
+  const outputDir = await makeTempDir("veogen-pipeline-render-");
+  const result = await runCreativePipeline({
+    idea: "A burnt-out night courier must cross a flooded neon city with a memory drive before sunrise.",
+    outputDir,
+    dryRun: true,
+    render: true,
+    skipCharacterImages: true,
+  });
+
+  assert.equal(result.renderRequested, true);
+  assert.ok(result.renderManifestPath);
+
+  const manifestRaw = await fs.readFile(result.renderManifestPath!, "utf8");
   const manifest = JSON.parse(manifestRaw) as {
     shots: Array<{ status: string }>;
   };

@@ -78,17 +78,34 @@ The repository now includes a higher-level `pipeline` command that chains five a
 - Character Evaluation Agent
 - Director Agent
 
-The pipeline can start from either an idea or an existing script, writes all intermediate artifacts under `outputs/.../development/`, materializes a final markdown script, and then hands that script to the existing Veo render/stitch flow.
+The pipeline can start from either an idea or an existing script, writes all intermediate artifacts under `outputs/.../development/`, materializes a final markdown script, and now stops there by default so you can review or edit the script before any render begins.
+Pass `--render` only when you want the pipeline to continue into render planning and video generation.
 If the Script Review Agent flags concrete issues, the pipeline now inserts a Script Revision Agent pass automatically before character generation and direction.
 If character-image generation is enabled, multi-character projects first generate a shared `cast-lineup.png` visual master, then derive single-character references from that lineup when image editing is available. The Character Evaluation Agent can trigger automatic regeneration passes when the consistency score falls below the configured threshold.
 
-Dry-run example:
+Review-first example:
 
 ```bash
 npm run dev -- pipeline \
   --idea "A burnt-out courier races through a flooded neon city with a stolen memory drive before sunrise." \
+  --skip-character-images
+```
+
+If you want the pipeline to keep going into render planning or an actual render, opt in explicitly:
+
+```bash
+npm run dev -- pipeline \
+  --idea "A burnt-out courier races through a flooded neon city with a stolen memory drive before sunrise." \
+  --render \
   --dry-run \
   --skip-character-images
+```
+
+After reviewing the generated script, the simplest next step is usually:
+
+```bash
+npm run render -- --script outputs/<run-id>/development/final-script.md --dry-run
+npm run render -- --script outputs/<run-id>/development/final-script.md
 ```
 
 Full run requirements:
@@ -98,7 +115,8 @@ Full run requirements:
 Useful options:
 
 - `--script <path>` to start from an existing script instead of an idea
-- `--skip-render` to stop after producing the final script and planning artifacts
+- `--render` to opt into render planning/video generation after the final script is produced
+- `--skip-render` to force a stop after the final script; this is now the default and mainly exists for compatibility
 - `--skip-character-images` to keep the development pipeline text-only
 - `--character-threshold <score>` to control when automatic character regeneration starts
 - `--character-refinement-rounds <count>` to cap how many regeneration loops run; default is `2`
@@ -108,8 +126,9 @@ Useful options:
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev -- pipeline --idea "your idea" --dry-run --skip-character-images` | Run the automated agent pipeline from an idea without calling external generation APIs |
-| `npm run dev -- pipeline --script projs/examples/demo-short.min.md --dry-run` | Run the automated agent pipeline starting from an existing script |
+| `npm run dev -- pipeline --idea "your idea" --skip-character-images` | Generate the final script and development artifacts, then stop for script review |
+| `npm run dev -- pipeline --idea "your idea" --render --dry-run --skip-character-images` | Generate the final script and render planning artifacts without calling video APIs |
+| `npm run dev -- pipeline --script projs/examples/demo-short.min.md` | Rewrite/adapt an existing script through the pipeline, then stop at the review stage by default |
 | `npm run plan -- --script projs/examples/demo-short.min.md` | Parse the smallest bundled script and build a render plan without calling Gemini |
 | `npm run render -- --script projs/examples/demo-short.min.md --dry-run` | Build prompts, plan, and manifest for the smallest bundled script without API calls |
 | `npm run render -- --script projs/examples/demo-short.min.md` | Generate clips and stitch the smallest bundled script |

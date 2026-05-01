@@ -53,15 +53,28 @@ program
 
 program
   .command("pipeline")
-  .description("Run the automated multi-agent short-film pipeline from an idea or script")
+  .description("Run the automated multi-agent short-film pipeline from an idea or script, stopping at the final script unless --render is passed")
   .option("--idea <text>", "Idea seed for the writer agent")
   .option("--idea-file <path>", "Path to a text file containing the idea seed")
   .option("-s, --script <path>", "Path to an existing script or markdown project")
   .option("--script-text <text>", "Raw script text to adapt into the pipeline")
   .option("-o, --output <path>", "Explicit pipeline run directory")
   .option("-m, --model <name>", "Override Veo model name for the final render stage")
-  .option("--dry-run", "Run agent development and render planning without calling external generation APIs", false)
-  .option("--skip-render", "Stop after generating the final script and development artifacts", false)
+  .option(
+    "--dry-run",
+    "Use local/fallback development instead of external generation APIs; when combined with --render, only build render planning artifacts",
+    false,
+  )
+  .option(
+    "--render",
+    "After the final script is generated, continue into render planning/video generation; by default the pipeline stops for script review",
+    false,
+  )
+  .option(
+    "--skip-render",
+    "Force the pipeline to stop after generating the final script (kept for compatibility; this is now the default behavior)",
+    false,
+  )
   .option("--skip-character-images", "Skip Gemini character image generation and keep the pipeline text-only", false)
   .option("--character-threshold <score>", "Minimum character consistency score before triggering an automatic regeneration loop", "85")
   .option("--character-refinement-rounds <count>", "Maximum automatic character regeneration rounds", "2")
@@ -76,6 +89,7 @@ program
       outputDir: options.output,
       modelOverride: options.model,
       dryRun: options.dryRun,
+      render: options.render,
       skipRender: options.skipRender,
       skipCharacterImages: options.skipCharacterImages,
       characterConsistencyThreshold: Number(options.characterThreshold),
